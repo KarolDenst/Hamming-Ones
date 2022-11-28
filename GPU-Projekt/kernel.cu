@@ -1,121 +1,83 @@
-﻿
-#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
-
-#include <stdio.h>
-
-cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
-
-__global__ void addKernel(int *c, const int *a, const int *b)
-{
-    int i = threadIdx.x;
-    c[i] = a[i] + b[i];
-}
+﻿#include "kernel.h"
 
 int main()
 {
-    const int arraySize = 5;
-    const int a[arraySize] = { 1, 2, 3, 4, 5 };
-    const int b[arraySize] = { 10, 20, 30, 40, 50 };
-    int c[arraySize] = { 0 };
+    unsigned int sequences[NUMBER][LENGTH];
+    GenerateSequences(sequences);
 
-    // Add vectors in parallel.
-    cudaError_t cudaStatus = addWithCuda(c, a, b, arraySize);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "addWithCuda failed!");
-        return 1;
-    }
-
-    printf("{1,2,3,4,5} + {10,20,30,40,50} = {%d,%d,%d,%d,%d}\n",
-        c[0], c[1], c[2], c[3], c[4]);
-
-    // cudaDeviceReset must be called before exiting in order for profiling and
-    // tracing tools such as Nsight and Visual Profiler to show complete traces.
-    cudaStatus = cudaDeviceReset();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaDeviceReset failed!");
-        return 1;
-    }
-
+    GetHammingOnesCPU(sequences);
     return 0;
 }
 
-// Helper function for using CUDA to add vectors in parallel.
-cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size)
+void GetHammingOnesCPU(unsigned int sequences[NUMBER][LENGTH]) {
+    for (int i = 0; i < NUMBER; i++) {
+        for (int j = i + 1; j < NUMBER; j++) {
+            if (checkIfHammingOnes(sequences[i], sequences[j])) {
+                PrintSequence(sequences[i]);
+                printf("\n");
+                PrintSequence(sequences[j]);
+                printf("\n==========\n");
+            }
+        }
+    }
+}
+
+void GenerateRandomBits(unsigned int sequence[LENGTH]) {
+    unsigned int* result = new unsigned int[LENGTH];
+    for (int i = 0; i < LENGTH; i++) {
+        unsigned int start = ((unsigned int)rand()) << 17;
+        unsigned int middle = ((unsigned int)rand()) << 2;
+        unsigned int end = rand() % 3;
+        sequence[i] = start + middle + end;
+    }
+}
+
+void GenerateSequences(unsigned int sequences[NUMBER][LENGTH]) {
+    srand(1);
+
+    for (int i = 0; i < NUMBER; i++) {
+        GenerateRandomBits(sequences[i]);
+    }
+}
+
+unsigned int countSetBits(unsigned int n)
 {
-    int *dev_a = 0;
-    int *dev_b = 0;
-    int *dev_c = 0;
-    cudaError_t cudaStatus;
+    unsigned int count = 0;
+    while (n) {
+        count += n & 1;
+        n >>= 1;
+    }
+    return count;
+}
 
-    // Choose which GPU to run on, change this on a multi-GPU system.
-    cudaStatus = cudaSetDevice(0);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
-        goto Error;
+bool checkIfHammingOnes(unsigned int* s1, unsigned int* s2) {
+    int counter = 0;
+    for (int i = 0; i < LENGTH; i++) {
+        unsigned int xor = s1[i] ^ s2[i];
+        counter += countSetBits(xor);
+
+        if (counter > 1) return false;
     }
 
-    // Allocate GPU buffers for three vectors (two input, one output)    .
-    cudaStatus = cudaMalloc((void**)&dev_c, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
-    }
+    if (counter == 1) return true;
+    return false;
+}
 
-    cudaStatus = cudaMalloc((void**)&dev_a, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
+void printBits(unsigned int num) {
+    int size = sizeof(unsigned int);
+    unsigned int maxPow = 1 << (size * 8 - 1);
+    int i = 0;
+    for (; i < size; ++i) {
+        for (; i < size * 8; ++i) {
+            // print last bit and shift left.
+            printf("%u ", num & maxPow ? 1 : 0);
+            num = num << 1;
+        }
     }
+}
 
-    cudaStatus = cudaMalloc((void**)&dev_b, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
+void PrintSequence(unsigned int* sequence) {
+    for (int i = 0; i < LENGTH; i++) {
+        printBits(sequence[i]);
     }
-
-    // Copy input vectors from host memory to GPU buffers.
-    cudaStatus = cudaMemcpy(dev_a, a, size * sizeof(int), cudaMemcpyHostToDevice);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
-
-    cudaStatus = cudaMemcpy(dev_b, b, size * sizeof(int), cudaMemcpyHostToDevice);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
-
-    // Launch a kernel on the GPU with one thread for each element.
-    addKernel<<<1, size>>>(dev_c, dev_a, dev_b);
-
-    // Check for any errors launching the kernel
-    cudaStatus = cudaGetLastError();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "addKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
-        goto Error;
-    }
-    
-    // cudaDeviceSynchronize waits for the kernel to finish, and returns
-    // any errors encountered during the launch.
-    cudaStatus = cudaDeviceSynchronize();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
-        goto Error;
-    }
-
-    // Copy output vector from GPU buffer to host memory.
-    cudaStatus = cudaMemcpy(c, dev_c, size * sizeof(int), cudaMemcpyDeviceToHost);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
-
-Error:
-    cudaFree(dev_c);
-    cudaFree(dev_a);
-    cudaFree(dev_b);
-    
-    return cudaStatus;
 }
