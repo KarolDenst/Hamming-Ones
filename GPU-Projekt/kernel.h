@@ -4,19 +4,19 @@
 #include <stdio.h>
 #include <random>
 
+#define CPU false
 #define NUMBER 100000
 #define LENGTH 1 // Sequence length = LENGTH * 32
+#define THREAD_COUNT 1024
 
-void GetHammingOnesCPU(unsigned int[NUMBER][LENGTH]);
-
-void GenerateRandomBits(unsigned int sequence[LENGTH]);
-
-void GenerateSequences(unsigned int sequences[NUMBER][LENGTH]);
-
-unsigned int countSetBits(unsigned int n);
-
-bool checkIfHammingOnes(unsigned int* s1, unsigned int* s2);
-
-void printBits(unsigned int num);
-
+void GetHammingOnes(unsigned int* sequences);
+void GenerateRandomBits(unsigned int* sequence);
+void GenerateSequences(unsigned int* sequences);
+unsigned int CountSetBits(unsigned int n);
+bool CheckIfHammingOnes(unsigned int* s1, unsigned int* s2);
+void PrintBits(unsigned int num);
 void PrintSequence(unsigned int* sequence);
+
+__global__ void GetHammingOnesGPU(unsigned int* sequences, unsigned int* result);
+__device__ unsigned int CountSetBitsGPU(unsigned int n);
+__device__ bool CheckIfHammingOnesGPU(unsigned int* s1, unsigned int* s2);
