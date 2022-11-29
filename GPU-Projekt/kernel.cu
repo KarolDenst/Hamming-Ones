@@ -26,12 +26,7 @@ void GetHammingOnes(unsigned int* sequences) {
     for (int i = 0; i < NUMBER; i++) {
         for (int j = i + 1; j < NUMBER; j++) {
             if (CheckIfHammingOnes(&sequences[i * LENGTH], &sequences[j * LENGTH])) {
-                printf("%d: ", i);
-                //PrintSequence(sequences[i]);
-                printf("\n");
-                printf("%d: ", j);
-                //PrintSequence(sequences[j]);
-                printf("\n==========\n");
+                PrintPair(&sequences[i * LENGTH], i, &sequences[j * LENGTH], j);
             }
         }
     }
@@ -94,6 +89,15 @@ void PrintSequence(unsigned int* sequence) {
     }
 }
 
+void PrintPair(unsigned int* s1, int i, unsigned int* s2, int j) {
+    printf("%7d: ", i);
+    PrintSequence(s1);
+    printf("\n");
+    printf("%7d: ", j);
+    PrintSequence(s2);
+    printf("\n==========\n");
+}
+
 __global__ void GetHammingOnesGPU(unsigned int* sequences, unsigned int* result) {
     int id = blockDim.x * blockIdx.x + threadIdx.x;
     result[id] = 0;
@@ -129,3 +133,22 @@ __device__ bool CheckIfHammingOnesGPU(unsigned int* s1, unsigned int* s2) {
     if (counter == 1) return true;
     return false;
 }
+
+//__device__ void PrintBitsGPU(unsigned int num) {
+//    int size = sizeof(unsigned int);
+//    unsigned int maxPow = 1 << (size * 8 - 1);
+//    int i = 0;
+//    for (; i < size; ++i) {
+//        for (; i < size * 8; ++i) {
+//            // print last bit and shift left.
+//            printf("%u ", num & maxPow ? 1 : 0);
+//            num = num << 1;
+//        }
+//    }
+//}
+//
+//__device__ void PrintSequenceGPU(unsigned int* sequence) {
+//    for (int i = 0; i < LENGTH; i++) {
+//        PrintBits(sequence[i]);
+//    }
+//}

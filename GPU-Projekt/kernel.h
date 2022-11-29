@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <random>
 
-#define CPU false
+#define CPU true
 #define NUMBER 100000
 #define LENGTH 1 // Sequence length = LENGTH * 32
 #define THREAD_COUNT 1024
@@ -16,6 +16,7 @@ unsigned int CountSetBits(unsigned int n);
 bool CheckIfHammingOnes(unsigned int* s1, unsigned int* s2);
 void PrintBits(unsigned int num);
 void PrintSequence(unsigned int* sequence);
+void PrintPair(unsigned int* s1, int i, unsigned int* s2, int j);
 
 __global__ void GetHammingOnesGPU(unsigned int* sequences, unsigned int* result);
 __device__ unsigned int CountSetBitsGPU(unsigned int n);
