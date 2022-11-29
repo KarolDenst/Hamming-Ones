@@ -6,7 +6,7 @@ int main()
     GenerateSequences(sequences);
     unsigned int* result = (unsigned int*)malloc(NUMBER * sizeof(unsigned int));
     unsigned int result_number;
-
+    
     auto start = std::chrono::high_resolution_clock::now();
     if (CPU) {
         GetHammingOnes(sequences, result);
@@ -17,11 +17,27 @@ int main()
         cudaMalloc(&d_sequences, NUMBER * LENGTH * sizeof(unsigned int));
         cudaMalloc(&d_result, NUMBER * sizeof(unsigned int));
         cudaMemcpy(d_sequences, sequences, NUMBER * LENGTH * sizeof(unsigned int), cudaMemcpyHostToDevice);
+        unsigned int blocks = (NUMBER + THREAD_COUNT - 1) / THREAD_COUNT;
 
-        unsigned int blocks = NUMBER / THREAD_COUNT + 1;
-        GetHammingOnesGPU<<<blocks, THREAD_COUNT>>>(d_sequences, d_result);
+        if (HASH) {
+            int* keys = (int*)malloc(HASH_MAP_SIZE * sizeof(int));
+            unsigned int* values = (unsigned int*)malloc(HASH_MAP_SIZE * sizeof(unsigned int) * LENGTH);
+            int* d_keys;
+            unsigned int* d_values;
+
+            SetUpHashTable(keys, values, sequences);
+            cudaMalloc(&d_keys, NUMBER * 2 * sizeof(int));
+            cudaMalloc(&d_values, NUMBER * 2 * sizeof(unsigned int) * LENGTH);
+            cudaMemcpy(d_keys, keys, NUMBER * 2 * sizeof(int), cudaMemcpyHostToDevice);
+            cudaMemcpy(d_values, values, NUMBER * 2 * sizeof(int), cudaMemcpyHostToDevice);
+
+            GetHammingOnesGPUHash << <blocks, THREAD_COUNT >> > (d_sequences, d_result, d_keys, d_values);
+        }
+        else {
+            GetHammingOnesGPU << <blocks, THREAD_COUNT >> > (d_sequences, d_result);
+        }
+
         cudaMemcpy(result, d_result, NUMBER * sizeof(unsigned int), cudaMemcpyDeviceToHost);
-
         cudaFree(d_sequences);
         cudaFree(d_result);
     }
@@ -162,6 +178,15 @@ __device__ bool CheckIfHammingOnesGPU(unsigned int* s1, unsigned int* s2) {
     return false;
 }
 
+__device__ bool CheckIfHammingZerosGPU(unsigned int* s1, unsigned int* s2) {
+    for (int i = 0; i < LENGTH; i++) {
+        unsigned int xor = s1[i] ^ s2[i];
+        if (CountSetBitsGPU(xor) > 0) return false;
+    }
+
+    return true;
+}
+
 __device__ void GetBitsGPU(unsigned int num) {
     int size = sizeof(unsigned int);
     unsigned int maxPow = 1 << (size * 8 - 1);
@@ -188,4 +213,99 @@ __device__ void GetPairGPU(unsigned int* s1, int i, unsigned int* s2, int j) {
     printf("%7d: ", j);
     GetSequenceGPU(s2);
     printf("\n==========\n");
+}
+
+__global__ void GetHammingOnesGPUHash(unsigned int* sequences, unsigned int* result, int* keys, unsigned int* values) {
+    int id = blockDim.x * blockIdx.x + threadIdx.x;
+    if (id >= NUMBER) return;
+
+    result[id] = 0;
+    unsigned int* seq = &sequences[id * LENGTH];
+
+    for (int i = 0; i < LENGTH; i++) {
+        for (int j = 0; j < 32; j++) {
+            seq[i] ^= 1UL << j;
+            if (HasKey(keys, values, &sequences[id * LENGTH])) {
+                result[id]++;
+            }
+            seq[i] ^= 1UL << j;
+        }
+    }
+}
+
+void Add(int* keys, unsigned int* values, int key, unsigned int* seq) {
+    unsigned int i = HashSequence(seq);
+    while (keys[i] != 0) {
+        i = (i + 1) % HASH_MAP_SIZE;
+    }
+
+    keys[i] = key;
+    for (int j = 0; j < LENGTH; j++) {
+        values[i + j] = seq[j];
+    }
+}
+
+__device__ unsigned int HashSequenceGPU(unsigned int* seq) {
+    unsigned int result = 0;
+    unsigned int test = HashGPU(seq[0]) % HASH_MAP_SIZE;
+    
+    return test;
+    return HashGPU(seq[0]) % HASH_MAP_SIZE;
+  /*  for (int i = 0; i < LENGTH; i++) {
+        result *= seq[i];
+    }*/
+
+    return result % HASH_MAP_SIZE;
+}
+
+__device__ unsigned int HashGPU(unsigned int x) {
+    x = ((x >> 16) ^ x) * 0x45d9f3b;
+    x = ((x >> 16) ^ x) * 0x45d9f3b;
+    x = (x >> 16) ^ x;
+    
+    return x;
+}
+
+unsigned int HashSequence(unsigned int* seq) {
+    unsigned int result = 0;
+
+    return Hash(seq[0]) % HASH_MAP_SIZE;
+    /*  for (int i = 0; i < LENGTH; i++) {
+          result *= seq[i];
+      }*/
+
+    return result % HASH_MAP_SIZE;
+}
+
+unsigned int Hash(unsigned int x) {
+    x = ((x >> 16) ^ x) * 0x45d9f3b;
+    x = ((x >> 16) ^ x) * 0x45d9f3b;
+    x = (x >> 16) ^ x;
+
+    return x;
+}
+
+void SetUpHashTable(int* keys, unsigned int* values, unsigned int* sequences) {
+    SetUpKeys(keys);
+    for (int i = 0; i < NUMBER; i++) {
+        Add(keys, values, i, &sequences[i * LENGTH]);
+    }
+}
+
+void SetUpKeys(int* keys) {
+    for (int i = 0; i < HASH_MAP_SIZE; i++) {
+        keys[i] = 0;
+    }
+}
+
+__device__ bool HasKey(int* keys, unsigned int* values, unsigned int* sequence) {
+    int i = HashSequenceGPU(sequence);
+    
+    while (keys[i] != 0) {
+        if (CheckIfHammingZerosGPU(&values[i * LENGTH], sequence)) return true;
+
+        i = (i + 1) % HASH_MAP_SIZE;
+    }
+
+    return false;
 }
