@@ -32,6 +32,10 @@ int main()
             cudaMemcpy(d_values, values, NUMBER * 2 * sizeof(int), cudaMemcpyHostToDevice);
 
             GetHammingOnesGPUHash << <blocks, THREAD_COUNT >> > (d_sequences, d_result, d_keys, d_values);
+            cudaFree(d_keys);
+            cudaFree(d_values);
+            free(keys);
+            free(values);
         }
         else {
             GetHammingOnesGPU << <blocks, THREAD_COUNT >> > (d_sequences, d_result);
@@ -42,11 +46,13 @@ int main()
         cudaFree(d_result);
     }
     auto finish = std::chrono::high_resolution_clock::now();
-    auto seconds = std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() / 1000000;
+    float seconds = (float)(std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count()) / 1000000.0;
         
     result_number = CountResultNumber(result);
     PrintResults(result_number, seconds);
 
+    free(sequences);
+    free(result);
     return 0;
 }
 
@@ -77,7 +83,7 @@ void GenerateSequences(unsigned int* sequences) {
     }
 }
 
-unsigned int CountSetBits(unsigned int n)
+__host__ __device__ unsigned int CountSetBits(unsigned int n)
 {
     unsigned int count = 0;
     while (n) {
@@ -87,7 +93,7 @@ unsigned int CountSetBits(unsigned int n)
     return count;
 }
 
-bool CheckIfHammingOnes(unsigned int* s1, unsigned int* s2) {
+__host__ __device__ bool CheckIfHammingOnes(unsigned int* s1, unsigned int* s2) {
     int counter = 0;
     for (int i = 0; i < LENGTH; i++) {
         unsigned int xor = s1[i] ^ s2[i];
@@ -100,7 +106,7 @@ bool CheckIfHammingOnes(unsigned int* s1, unsigned int* s2) {
     return false;
 }
 
-void PrintBits(unsigned int num) {
+__host__ __device__ void PrintBits(unsigned int num) {
     int size = sizeof(unsigned int);
     unsigned int maxPow = 1 << (size * 8 - 1);
     for (int i = 0; i < size; ++i) {
@@ -112,13 +118,13 @@ void PrintBits(unsigned int num) {
     }
 }
 
-void PrintSequence(unsigned int* sequence) {
+__host__ __device__ void PrintSequence(unsigned int* sequence) {
     for (int i = 0; i < LENGTH; i++) {
         PrintBits(sequence[i]);
     }
 }
 
-void PrintPair(unsigned int* s1, int i, unsigned int* s2, int j) {
+__host__ __device__ void PrintPair(unsigned int* s1, int i, unsigned int* s2, int j) {
     printf("%7d: ", i);
     PrintSequence(s1);
     printf("\n");
@@ -136,9 +142,9 @@ unsigned int CountResultNumber(unsigned int* result) {
     return sum;
 }
 
-void PrintResults(unsigned int result_number, long long seconds) {
+void PrintResults(unsigned int result_number, float seconds) {
     printf("\n");
-    printf("The program found %d results. It took %d seconds", result_number, seconds);
+    printf("The program found %d results. It took %f seconds", result_number, seconds);
 }
 
 __global__ void GetHammingOnesGPU(unsigned int* sequences, unsigned int* result) {
@@ -147,8 +153,8 @@ __global__ void GetHammingOnesGPU(unsigned int* sequences, unsigned int* result)
     if (id >= NUMBER) return;
     unsigned int* main = &sequences[id * LENGTH];
     for (int i = id + 1; i < NUMBER; i++) {
-        if (CheckIfHammingOnesGPU(main, &sequences[i * LENGTH])) {
-            GetPairGPU(main, id, &sequences[i * LENGTH], i);
+        if (CheckIfHammingOnes(main, &sequences[i * LENGTH])) {
+            PrintPair(main, id, &sequences[i * LENGTH], i);
 
             result[id]++;
         }
@@ -165,19 +171,6 @@ __device__ unsigned int CountSetBitsGPU(unsigned int n)
     return count;
 }
 
-__device__ bool CheckIfHammingOnesGPU(unsigned int* s1, unsigned int* s2) {
-    int counter = 0;
-    for (int i = 0; i < LENGTH; i++) {
-        unsigned int xor = s1[i] ^ s2[i];
-        counter += CountSetBitsGPU(xor);
-
-        if (counter > 1) return false;
-    }
-
-    if (counter == 1) return true;
-    return false;
-}
-
 __device__ bool CheckIfHammingZerosGPU(unsigned int* s1, unsigned int* s2) {
     for (int i = 0; i < LENGTH; i++) {
         unsigned int xor = s1[i] ^ s2[i];
@@ -185,34 +178,6 @@ __device__ bool CheckIfHammingZerosGPU(unsigned int* s1, unsigned int* s2) {
     }
 
     return true;
-}
-
-__device__ void GetBitsGPU(unsigned int num) {
-    int size = sizeof(unsigned int);
-    unsigned int maxPow = 1 << (size * 8 - 1);
-
-    for (int i = 0; i < size; ++i) {
-        for (; i < size * 8; ++i) {
-            // print last bit and shift left.
-            printf("%u ", num & maxPow ? 1 : 0);
-            num = num << 1;
-        }
-    }
-}
-
-__device__ void GetSequenceGPU(unsigned int* sequence) {
-    for (int i = 0; i < LENGTH; i++) {
-        GetBitsGPU(sequence[i]);
-    }
-}
-
-__device__ void GetPairGPU(unsigned int* s1, int i, unsigned int* s2, int j) {
-    printf("%7d: ", i);
-    GetSequenceGPU(s1);
-    printf("\n");
-    printf("%7d: ", j);
-    GetSequenceGPU(s2);
-    printf("\n==========\n");
 }
 
 __global__ void GetHammingOnesGPUHash(unsigned int* sequences, unsigned int* result, int* keys, unsigned int* values) {
@@ -245,39 +210,17 @@ void Add(int* keys, unsigned int* values, int key, unsigned int* seq) {
     }
 }
 
-__device__ unsigned int HashSequenceGPU(unsigned int* seq) {
+__host__ __device__ unsigned int HashSequence(unsigned int* seq) {
     unsigned int result = 0;
-    unsigned int test = HashGPU(seq[0]) % HASH_MAP_SIZE;
-    
-    return test;
-    return HashGPU(seq[0]) % HASH_MAP_SIZE;
-  /*  for (int i = 0; i < LENGTH; i++) {
-        result *= seq[i];
-    }*/
+
+    for (int i = 0; i < LENGTH; i++) {
+        result = result ^ Hash(seq[i]);
+    }
 
     return result % HASH_MAP_SIZE;
 }
 
-__device__ unsigned int HashGPU(unsigned int x) {
-    x = ((x >> 16) ^ x) * 0x45d9f3b;
-    x = ((x >> 16) ^ x) * 0x45d9f3b;
-    x = (x >> 16) ^ x;
-    
-    return x;
-}
-
-unsigned int HashSequence(unsigned int* seq) {
-    unsigned int result = 0;
-
-    return Hash(seq[0]) % HASH_MAP_SIZE;
-    /*  for (int i = 0; i < LENGTH; i++) {
-          result *= seq[i];
-      }*/
-
-    return result % HASH_MAP_SIZE;
-}
-
-unsigned int Hash(unsigned int x) {
+__host__ __device__ unsigned int Hash(unsigned int x) {
     x = ((x >> 16) ^ x) * 0x45d9f3b;
     x = ((x >> 16) ^ x) * 0x45d9f3b;
     x = (x >> 16) ^ x;
@@ -299,7 +242,7 @@ void SetUpKeys(int* keys) {
 }
 
 __device__ bool HasKey(int* keys, unsigned int* values, unsigned int* sequence) {
-    int i = HashSequenceGPU(sequence);
+    int i = HashSequence(sequence);
     
     while (keys[i] != 0) {
         if (CheckIfHammingZerosGPU(&values[i * LENGTH], sequence)) return true;
