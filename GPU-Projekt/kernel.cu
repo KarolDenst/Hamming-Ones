@@ -5,8 +5,12 @@ int main()
     unsigned int* sequences = (unsigned int*)malloc(NUMBER * LENGTH * sizeof(unsigned int));
     GenerateSequences(sequences);
     unsigned int* result = (unsigned int*)malloc(NUMBER * sizeof(unsigned int));
+    unsigned int result_number;
 
-    if (CPU) GetHammingOnes(sequences);
+    auto start = std::chrono::high_resolution_clock::now();
+    if (CPU) {
+        GetHammingOnes(sequences, result);
+    }
     else {
         unsigned int* d_sequences;
         unsigned int* d_result;
@@ -17,16 +21,26 @@ int main()
         unsigned int blocks = NUMBER / THREAD_COUNT + 1;
         GetHammingOnesGPU<<<blocks, THREAD_COUNT>>>(d_sequences, d_result);
         cudaMemcpy(result, d_result, NUMBER * sizeof(unsigned int), cudaMemcpyDeviceToHost);
+
+        cudaFree(d_sequences);
+        cudaFree(d_result);
     }
-    
+    auto finish = std::chrono::high_resolution_clock::now();
+    auto seconds = std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() / 1000000;
+        
+    result_number = CountResultNumber(result);
+    PrintResults(result_number, seconds);
+
     return 0;
 }
 
-void GetHammingOnes(unsigned int* sequences) {
+void GetHammingOnes(unsigned int* sequences, unsigned int* result) {
     for (int i = 0; i < NUMBER; i++) {
+        result[i] = 0;
         for (int j = i + 1; j < NUMBER; j++) {
             if (CheckIfHammingOnes(&sequences[i * LENGTH], &sequences[j * LENGTH])) {
                 PrintPair(&sequences[i * LENGTH], i, &sequences[j * LENGTH], j);
+                result[i]++;
             }
         }
     }
@@ -73,8 +87,7 @@ bool CheckIfHammingOnes(unsigned int* s1, unsigned int* s2) {
 void PrintBits(unsigned int num) {
     int size = sizeof(unsigned int);
     unsigned int maxPow = 1 << (size * 8 - 1);
-    int i = 0;
-    for (; i < size; ++i) {
+    for (int i = 0; i < size; ++i) {
         for (; i < size * 8; ++i) {
             // print last bit and shift left.
             printf("%u ", num & maxPow ? 1 : 0);
@@ -98,14 +111,29 @@ void PrintPair(unsigned int* s1, int i, unsigned int* s2, int j) {
     printf("\n==========\n");
 }
 
+unsigned int CountResultNumber(unsigned int* result) {
+    unsigned int sum = 0;
+    for (int i = 0; i < NUMBER; i++) {
+        sum += result[i];
+    }
+
+    return sum;
+}
+
+void PrintResults(unsigned int result_number, long long seconds) {
+    printf("\n");
+    printf("The program found %d results. It took %d seconds", result_number, seconds);
+}
+
 __global__ void GetHammingOnesGPU(unsigned int* sequences, unsigned int* result) {
     int id = blockDim.x * blockIdx.x + threadIdx.x;
     result[id] = 0;
     if (id >= NUMBER) return;
     unsigned int* main = &sequences[id * LENGTH];
-    for (int i = 0; i < NUMBER; i++) {
+    for (int i = id + 1; i < NUMBER; i++) {
         if (CheckIfHammingOnesGPU(main, &sequences[i * LENGTH])) {
-            printf("test");
+            GetPairGPU(main, id, &sequences[i * LENGTH], i);
+
             result[id]++;
         }
     }
@@ -134,21 +162,30 @@ __device__ bool CheckIfHammingOnesGPU(unsigned int* s1, unsigned int* s2) {
     return false;
 }
 
-//__device__ void PrintBitsGPU(unsigned int num) {
-//    int size = sizeof(unsigned int);
-//    unsigned int maxPow = 1 << (size * 8 - 1);
-//    int i = 0;
-//    for (; i < size; ++i) {
-//        for (; i < size * 8; ++i) {
-//            // print last bit and shift left.
-//            printf("%u ", num & maxPow ? 1 : 0);
-//            num = num << 1;
-//        }
-//    }
-//}
-//
-//__device__ void PrintSequenceGPU(unsigned int* sequence) {
-//    for (int i = 0; i < LENGTH; i++) {
-//        PrintBits(sequence[i]);
-//    }
-//}
+__device__ void GetBitsGPU(unsigned int num) {
+    int size = sizeof(unsigned int);
+    unsigned int maxPow = 1 << (size * 8 - 1);
+
+    for (int i = 0; i < size; ++i) {
+        for (; i < size * 8; ++i) {
+            // print last bit and shift left.
+            printf("%u ", num & maxPow ? 1 : 0);
+            num = num << 1;
+        }
+    }
+}
+
+__device__ void GetSequenceGPU(unsigned int* sequence) {
+    for (int i = 0; i < LENGTH; i++) {
+        GetBitsGPU(sequence[i]);
+    }
+}
+
+__device__ void GetPairGPU(unsigned int* s1, int i, unsigned int* s2, int j) {
+    printf("%7d: ", i);
+    GetSequenceGPU(s1);
+    printf("\n");
+    printf("%7d: ", j);
+    GetSequenceGPU(s2);
+    printf("\n==========\n");
+}
