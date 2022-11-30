@@ -31,7 +31,8 @@ int main()
             cudaMemcpy(d_keys, keys, NUMBER * 2 * sizeof(int), cudaMemcpyHostToDevice);
             cudaMemcpy(d_values, values, NUMBER * 2 * sizeof(int), cudaMemcpyHostToDevice);
 
-            GetHammingOnesGPUHash << <blocks, THREAD_COUNT >> > (d_sequences, d_result, d_keys, d_values);
+            dim3 num_blocks(blocks, LENGTH);
+            GetHammingOnesGPUHash << <num_blocks, THREAD_COUNT >> > (d_sequences, d_result, d_keys, d_values);
             cudaFree(d_keys);
             cudaFree(d_values);
             free(keys);
@@ -49,6 +50,7 @@ int main()
     float seconds = (float)(std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count()) / 1000000.0;
         
     result_number = CountResultNumber(result);
+
     PrintResults(result_number, seconds);
 
     free(sequences);
@@ -154,9 +156,9 @@ __global__ void GetHammingOnesGPU(unsigned int* sequences, unsigned int* result)
     unsigned int* main = &sequences[id * LENGTH];
     for (int i = id + 1; i < NUMBER; i++) {
         if (CheckIfHammingOnes(main, &sequences[i * LENGTH])) {
-            PrintPair(main, id, &sequences[i * LENGTH], i);
+            printf("%d - %d\n", id, i);
 
-            result[id]++;
+            result[id]++; 
         }
     }
 }
@@ -185,13 +187,17 @@ __global__ void GetHammingOnesGPUHash(unsigned int* sequences, unsigned int* res
     if (id >= NUMBER) return;
 
     result[id] = 0;
-    unsigned int* seq = &sequences[id * LENGTH];
+    unsigned int* seq = &sequences[id];
 
     for (int i = 0; i < LENGTH; i++) {
         for (int j = 0; j < 32; j++) {
             seq[i] ^= 1UL << j;
-            if (HasKey(keys, values, &sequences[id * LENGTH])) {
-                result[id]++;
+            int key = HasKey(keys, values, &sequences[id * LENGTH]);
+            if (key != -1) {
+                if (key < id) {
+                    printf("%d - %d\n", id / LENGTH, key);
+                    result[id]++;
+                }
             }
             seq[i] ^= 1UL << j;
         }
@@ -241,14 +247,14 @@ void SetUpKeys(int* keys) {
     }
 }
 
-__device__ bool HasKey(int* keys, unsigned int* values, unsigned int* sequence) {
+__device__ int HasKey(int* keys, unsigned int* values, unsigned int* sequence) {
     int i = HashSequence(sequence);
     
     while (keys[i] != 0) {
-        if (CheckIfHammingZerosGPU(&values[i * LENGTH], sequence)) return true;
+        if (CheckIfHammingZerosGPU(&values[i * LENGTH], sequence)) return keys[i];
 
         i = (i + 1) % HASH_MAP_SIZE;
     }
 
-    return false;
+    return -1;
 }

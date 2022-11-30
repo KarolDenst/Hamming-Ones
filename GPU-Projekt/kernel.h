@@ -1,7 +1,5 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
-#include <thrust/host_vector.h>
-#include <thrust/device_vector.h>
 
 #include <stdio.h>
 #include <random>
@@ -10,7 +8,7 @@
 #define CPU false
 #define HASH true
 #define NUMBER 100000
-#define LENGTH 32 // Sequence length = LENGTH * 32
+#define LENGTH 1 // Sequence length = LENGTH * 32
 #define THREAD_COUNT 1024
 #define HASH_MAP_SIZE 200000
 
@@ -34,5 +32,5 @@ void SetUpKeys(int* keys);
 __host__ __device__ unsigned int HashSequence(unsigned int* seq);
 __host__ __device__ unsigned int Hash(unsigned int x);
 __global__ void GetHammingOnesGPUHash(unsigned int* sequences, unsigned int* result, int* keys, unsigned int* values);
-__device__ bool HasKey(int* keys, unsigned int* values, unsigned int* sequence);
+__device__ int HasKey(int* keys, unsigned int* values, unsigned int* sequence);
 __device__ bool CheckIfHammingZerosGPU(unsigned int* s1, unsigned int* s2);
