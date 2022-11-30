@@ -1,16 +1,19 @@
-﻿#include "kernel.h"
+﻿#include "hamming_ones.h"
+
+#if defined (__INTELLISENSE__) | defined (__RESHARPER__)
+template<class T1, class T2>
+__device__ void atomicAdd(T1 x, T2 y);
+#endif
 
 int main()
 {
     unsigned int* sequences = (unsigned int*)malloc(NUMBER * LENGTH * sizeof(unsigned int));
     GenerateSequences(sequences);
-    unsigned int* result = (unsigned int*)malloc(NUMBER * sizeof(unsigned int));
-    unsigned int result_number;
+    unsigned int* result = (unsigned int*)malloc(sizeof(unsigned int));
 
-    //for (int i = 0; i < LENGTH; i++) {
-    //    sequences[69 * LENGTH + i] = sequences[420 * LENGTH + i];
-    //}
-    //sequences[69 * LENGTH] ^= 1UL << 4;
+    if (FORCE_ONE_PAIR) {
+        CreateOnePair(sequences);
+    }
     
     auto start = std::chrono::high_resolution_clock::now();
     if (CPU) {
@@ -20,8 +23,9 @@ int main()
         unsigned int* d_sequences;
         unsigned int* d_result;
         cudaMalloc(&d_sequences, NUMBER * LENGTH * sizeof(unsigned int));
-        cudaMalloc(&d_result, NUMBER * sizeof(unsigned int));
+        cudaMalloc(&d_result, sizeof(unsigned int));
         cudaMemcpy(d_sequences, sequences, NUMBER * LENGTH * sizeof(unsigned int), cudaMemcpyHostToDevice);
+        cudaMemcpy(d_result, result, sizeof(unsigned int), cudaMemcpyHostToDevice);
         unsigned int blocks = (NUMBER + THREAD_COUNT - 1) / THREAD_COUNT;
 
         if (HASH) {
@@ -46,29 +50,34 @@ int main()
             GetHammingOnesGPU << <blocks, THREAD_COUNT >> > (d_sequences, d_result);
         }
 
-        cudaMemcpy(result, d_result, NUMBER * sizeof(unsigned int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(result, d_result, sizeof(unsigned int), cudaMemcpyDeviceToHost);
         cudaFree(d_sequences);
         cudaFree(d_result);
     }
     auto finish = std::chrono::high_resolution_clock::now();
     float seconds = (float)(std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count()) / 1000000.0;
         
-    result_number = CountResultNumber(result);
-
-    PrintResults(result_number, seconds);
+    PrintResults(result[0], seconds);
 
     free(sequences);
     free(result);
     return 0;
 }
 
+void CreateOnePair(unsigned int* sequences) {
+    for (int i = 0; i < LENGTH; i++) {
+        sequences[69 * LENGTH + i] = sequences[420 * LENGTH + i];
+    }
+    sequences[69 * LENGTH] ^= 1UL << 4;
+}
+
 void GetHammingOnes(unsigned int* sequences, unsigned int* result) {
+    result[0] = 0;
     for (int i = 0; i < NUMBER; i++) {
-        result[i] = 0;
         for (int j = i + 1; j < NUMBER; j++) {
             if (CheckIfHammingOnes(&sequences[i * LENGTH], &sequences[j * LENGTH])) {
                 PrintPair(&sequences[i * LENGTH], i, &sequences[j * LENGTH], j);
-                result[i]++;
+                result[0]++;
             }
         }
     }
@@ -155,14 +164,12 @@ void PrintResults(unsigned int result_number, float seconds) {
 
 __global__ void GetHammingOnesGPU(unsigned int* sequences, unsigned int* result) {
     int id = blockDim.x * blockIdx.x + threadIdx.x;
-    result[id] = 0;
     if (id >= NUMBER) return;
     unsigned int* main = &sequences[id * LENGTH];
     for (int i = id + 1; i < NUMBER; i++) {
         if (CheckIfHammingOnes(main, &sequences[i * LENGTH])) {
             printf("%d - %d\n", id, i);
-
-            result[id]++; 
+            atomicAdd(&result[0], 1);
         }
     }
 }
@@ -190,10 +197,9 @@ __global__ void GetHammingOnesGPUHash(unsigned int* sequences, unsigned int* res
     int id = blockDim.x * blockIdx.x + threadIdx.x;
     if (id >= NUMBER * LENGTH) return;
 
-    
     int i = id % LENGTH;
     int index = id - i;
-    if(i == 0) result[id / LENGTH] = 0;
+    if(id == 0) result[0] = 0;
     unsigned int seq[LENGTH];
 
     for (int j = 0; j < LENGTH; j++) {
@@ -205,9 +211,9 @@ __global__ void GetHammingOnesGPUHash(unsigned int* sequences, unsigned int* res
         int key = GetKey(keys, values, seq);
                 
         if (key != -1) {
-            if (key > id) {
+            if (key < id / LENGTH) {
                 printf("%d - %d\n", id / LENGTH, key);
-                result[id]++;
+                atomicAdd(&result[0], 1);
             }
         }
         seq[i] ^= 1UL << j;

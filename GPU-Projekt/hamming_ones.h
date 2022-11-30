@@ -12,7 +12,9 @@
 #define LENGTH 32 // Sequence length = LENGTH * 32
 #define THREAD_COUNT 1024
 #define HASH_MAP_SIZE 200000
+#define FORCE_ONE_PAIR true
 
+void CreateOnePair(unsigned int* sequences);
 void GetHammingOnes(unsigned int* sequences, unsigned int* result);
 void GenerateRandomBits(unsigned int* sequence);
 void GenerateSequences(unsigned int* sequences);
