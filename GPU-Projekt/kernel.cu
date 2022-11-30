@@ -6,6 +6,11 @@ int main()
     GenerateSequences(sequences);
     unsigned int* result = (unsigned int*)malloc(NUMBER * sizeof(unsigned int));
     unsigned int result_number;
+
+    //for (int i = 0; i < LENGTH; i++) {
+    //    sequences[69 * LENGTH + i] = sequences[420 * LENGTH + i];
+    //}
+    //sequences[69 * LENGTH] ^= 1UL << 4;
     
     auto start = std::chrono::high_resolution_clock::now();
     if (CPU) {
@@ -26,13 +31,12 @@ int main()
             unsigned int* d_values;
 
             SetUpHashTable(keys, values, sequences);
-            cudaMalloc(&d_keys, NUMBER * 2 * sizeof(int));
-            cudaMalloc(&d_values, NUMBER * 2 * sizeof(unsigned int) * LENGTH);
-            cudaMemcpy(d_keys, keys, NUMBER * 2 * sizeof(int), cudaMemcpyHostToDevice);
-            cudaMemcpy(d_values, values, NUMBER * 2 * sizeof(int), cudaMemcpyHostToDevice);
+            cudaMalloc(&d_keys, HASH_MAP_SIZE * sizeof(int));
+            cudaMalloc(&d_values, HASH_MAP_SIZE * sizeof(unsigned int) * LENGTH);
+            cudaMemcpy(d_keys, keys, HASH_MAP_SIZE * sizeof(int), cudaMemcpyHostToDevice);
+            cudaMemcpy(d_values, values, HASH_MAP_SIZE * sizeof(unsigned int) * LENGTH, cudaMemcpyHostToDevice);
 
-            dim3 num_blocks(blocks, LENGTH);
-            GetHammingOnesGPUHash << <num_blocks, THREAD_COUNT >> > (d_sequences, d_result, d_keys, d_values);
+            GetHammingOnesGPUHash << <blocks * LENGTH, THREAD_COUNT >> > (d_sequences, d_result, d_keys, d_values);
             cudaFree(d_keys);
             cudaFree(d_values);
             free(keys);
@@ -78,7 +82,7 @@ void GenerateRandomBits(unsigned int* sequence) {
 }
 
 void GenerateSequences(unsigned int* sequences) {
-    srand(1);
+    srand(SEED);
 
     for (int i = 0; i < NUMBER * LENGTH; i++) {
         GenerateRandomBits(&sequences[i]);
@@ -184,23 +188,29 @@ __device__ bool CheckIfHammingZerosGPU(unsigned int* s1, unsigned int* s2) {
 
 __global__ void GetHammingOnesGPUHash(unsigned int* sequences, unsigned int* result, int* keys, unsigned int* values) {
     int id = blockDim.x * blockIdx.x + threadIdx.x;
-    if (id >= NUMBER) return;
+    if (id >= NUMBER * LENGTH) return;
 
-    result[id] = 0;
-    unsigned int* seq = &sequences[id];
+    
+    int i = id % LENGTH;
+    int index = id - i;
+    if(i == 0) result[id / LENGTH] = 0;
+    unsigned int seq[LENGTH];
 
-    for (int i = 0; i < LENGTH; i++) {
-        for (int j = 0; j < 32; j++) {
-            seq[i] ^= 1UL << j;
-            int key = HasKey(keys, values, &sequences[id * LENGTH]);
-            if (key != -1) {
-                if (key < id) {
-                    printf("%d - %d\n", id / LENGTH, key);
-                    result[id]++;
-                }
+    for (int j = 0; j < LENGTH; j++) {
+        seq[j] = sequences[index + j];
+    }
+
+    for (int j = 0; j < 32; j++) {
+        seq[i] ^= 1UL << j;
+        int key = GetKey(keys, values, seq);
+                
+        if (key != -1) {
+            if (key > id) {
+                printf("%d - %d\n", id / LENGTH, key);
+                result[id]++;
             }
-            seq[i] ^= 1UL << j;
         }
+        seq[i] ^= 1UL << j;
     }
 }
 
@@ -212,7 +222,7 @@ void Add(int* keys, unsigned int* values, int key, unsigned int* seq) {
 
     keys[i] = key;
     for (int j = 0; j < LENGTH; j++) {
-        values[i + j] = seq[j];
+        values[i * LENGTH + j] = seq[j];
     }
 }
 
@@ -247,7 +257,7 @@ void SetUpKeys(int* keys) {
     }
 }
 
-__device__ int HasKey(int* keys, unsigned int* values, unsigned int* sequence) {
+__device__ int GetKey(int* keys, unsigned int* values, unsigned int* sequence) {
     int i = HashSequence(sequence);
     
     while (keys[i] != 0) {

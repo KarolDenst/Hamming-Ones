@@ -5,10 +5,11 @@
 #include <random>
 #include <chrono>
 
+#define SEED 1
 #define CPU false
 #define HASH true
 #define NUMBER 100000
-#define LENGTH 1 // Sequence length = LENGTH * 32
+#define LENGTH 32 // Sequence length = LENGTH * 32
 #define THREAD_COUNT 1024
 #define HASH_MAP_SIZE 200000
 
@@ -32,5 +33,5 @@ void SetUpKeys(int* keys);
 __host__ __device__ unsigned int HashSequence(unsigned int* seq);
 __host__ __device__ unsigned int Hash(unsigned int x);
 __global__ void GetHammingOnesGPUHash(unsigned int* sequences, unsigned int* result, int* keys, unsigned int* values);
-__device__ int HasKey(int* keys, unsigned int* values, unsigned int* sequence);
+__device__ int GetKey(int* keys, unsigned int* values, unsigned int* sequence);
 __device__ bool CheckIfHammingZerosGPU(unsigned int* s1, unsigned int* s2);
